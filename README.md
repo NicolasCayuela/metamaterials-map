@@ -2,11 +2,14 @@
 
 # Metamaterials Research Space
 
-An interactive map of the metamaterials literature. Around 615,000 papers
-(Semantic Scholar, arXiv, OpenAlex and HAL, 1987 to 2026) embedded with
+An interactive map of the metamaterials literature: about 600,000 papers
+published between 1987 and 2026, collected from Semantic Scholar, arXiv,
+OpenAlex, Crossref and HAL. Each one is embedded with
 [Qwen3-Embedding-4B](https://huggingface.co/Qwen/Qwen3-Embedding-4B) and
-projected to 2D with UMAP. Every dot is a publication and neighbourhoods are
-research topics.
+projected to 2D with [UMAP](https://umap-learn.readthedocs.io), so every dot
+is a publication and neighbourhoods are research topics (phononic crystals,
+acoustic and elastic metamaterials, photonics, mechanical lattices...). Zoom,
+search, explore.
 
 **Live:** https://nicolascayuela.github.io/metamaterials_space/
 
