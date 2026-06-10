@@ -1,0 +1,1965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Metamaterials map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/deck.gl@9.0.36/dist.min.js"></script>
+<style>
+  :root {
+    --bg: #050510;
+    --panel: rgba(10, 11, 24, .82);
+    --border: #262840;
+    --text: #dcdde8;
+    --muted: #8b8da8;
+    --accent: #ffb347;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); overflow: hidden;
+               font-family: "Segoe UI", system-ui, sans-serif; color: var(--text); }
+  #map { position: absolute; inset: 0; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+           backdrop-filter: blur(8px); }
+  .ptitle { font-size: 10px; letter-spacing: .25em; text-transform: uppercase;
+            color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+
+  /* ── header / title ─────────────────────────────────── */
+  #brand { position: absolute; top: 14px; left: 16px; z-index: 10; pointer-events: none; }
+  #brand b { font-size: 13px; letter-spacing: .2em; color: #fff; }
+  #brand span { display: block; font-size: 10px; letter-spacing: .15em; color: var(--muted); }
+
+  #nav { position: absolute; top: 16px; right: 16px; z-index: 10; display: flex; gap: 6px; }
+  #nav a { font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+           color: var(--muted); text-decoration: none; padding: 7px 13px;
+           border: 1px solid var(--border); border-radius: 7px;
+           background: var(--panel); backdrop-filter: blur(8px); }
+  #nav a:hover { color: #fff; background: rgba(48,50,82,.9); }
+  #nav a.active { color: var(--accent); border-color: var(--accent); }
+
+  /* transverse facet chips, grouped (wave map) */
+  #mechChips { position: absolute; top: 62px; right: 16px; z-index: 10;
+               width: 320px; max-height: 70vh; overflow-y: auto;
+               background: var(--panel); border: 1px solid var(--border);
+               border-radius: 9px; backdrop-filter: blur(8px); padding: 10px 12px;
+               display: none; }
+  #mechChips.open { display: block; }
+  #mechToggle { position: absolute; top: 62px; right: 16px; z-index: 11;
+                font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+                color: var(--muted); padding: 7px 13px; cursor: pointer;
+                border: 1px solid var(--border); border-radius: 7px;
+                background: var(--panel); backdrop-filter: blur(8px);
+                user-select: none; display: none; }
+  #mechToggle:hover { color: #fff; }
+  #mechToggle.active { color: #ff7ad9; border-color: #ff7ad9; }
+  .chipGroup { font-size: 9px; letter-spacing: .25em; color: var(--muted);
+               text-transform: uppercase; margin: 10px 0 6px; }
+  .chipGroup:first-child { margin-top: 0; }
+  .chipRow { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { font-size: 10.5px; letter-spacing: .04em; color: var(--muted);
+          padding: 4px 10px; border: 1px solid var(--border); border-radius: 12px;
+          cursor: pointer; user-select: none; }
+  .chip:hover { color: #fff; }
+  .chip.on { color: #ff7ad9; border-color: #ff7ad9;
+             box-shadow: 0 0 8px rgba(255,122,217,.35); }
+
+  #title { position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+           text-align: center; pointer-events: none; z-index: 10; }
+  #title .t1 { color: #fff; letter-spacing: .4em; font-size: 15px; font-weight: 700;
+               text-transform: uppercase; text-shadow: 0 0 12px #000; }
+  #title .t2 { letter-spacing: .3em; font-size: 9px; color: var(--muted);
+               text-transform: uppercase; margin-top: 4px; }
+
+  /* ── left column: search + years + controls ─────────── */
+  #leftCol { position: absolute; top: 70px; left: 16px; width: 300px; z-index: 10;
+             display: flex; flex-direction: column; gap: 10px;
+             transition: transform .25s ease, opacity .25s ease; }
+  #leftCol.hidden { transform: translateX(-330px); opacity: 0; pointer-events: none; }
+  #searchPanel { padding: 12px; position: relative; }
+  #panelToggle { position: absolute; top: 76px; left: 16px; z-index: 11;
+                 width: 30px; height: 44px; display: flex; align-items: center;
+                 justify-content: center; cursor: pointer; color: var(--text);
+                 background: var(--panel); border: 1px solid var(--border);
+                 border-radius: 0 8px 8px 0; backdrop-filter: blur(8px);
+                 transition: left .25s ease; font-size: 14px; user-select: none; }
+  #panelToggle:hover { background: rgba(48,50,82,.9); }
+  #leftCol:not(.hidden) ~ #panelToggle { left: 322px; }
+  #searchWrap { position: relative; }
+  #searchBox { width: 100%; box-sizing: border-box; background: #0c0d1f; color: var(--text);
+               border: 1px solid var(--border); border-radius: 5px; padding: 8px 30px 8px 10px;
+               font-size: 13px; outline: none; }
+  #searchBox:focus { border-color: #4a4d78; }
+  #searchClear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+                 width: 18px; height: 18px; display: none; align-items: center;
+                 justify-content: center; border-radius: 50%; font-size: 10px;
+                 color: var(--muted); cursor: pointer; background: rgba(255,255,255,.06); }
+  #searchClear:hover { color: #fff; background: rgba(255,255,255,.14); }
+  #searchClear.show { display: flex; }
+  #searchResults { margin-top: 8px; max-height: 46vh; overflow-y: auto; }
+  .sr { padding: 7px 8px; border-radius: 5px; cursor: pointer; font-size: 12px; line-height: 1.4; }
+  .sr:hover { background: rgba(255,255,255,.06); }
+  .sr .m { color: var(--muted); font-size: 11px; }
+  .sr.off { opacity: .45; cursor: default; }
+
+  /* ── year filter (dual-thumb on one track) ──────────── */
+  #yearPanel { padding: 12px 16px 14px; }
+  #yearHead, #citHead { display: flex; justify-content: space-between; align-items: baseline;
+              margin-bottom: 10px; }
+  #yearHead label, #citHead label { font-size: 10px; letter-spacing: .25em; color: var(--muted); }
+  #yearVal { color: var(--accent); font-size: 13px; font-weight: 600;
+             font-variant-numeric: tabular-nums; }
+  #yearTrack, #citTrack { position: relative; height: 16px; }
+  #yearTrack .rail, #citTrack .rail { position: absolute; top: 6px; left: 0; right: 0; height: 4px;
+                     border-radius: 2px; background: #2b2d4a; }
+  #yearTrack .fill { position: absolute; top: 6px; height: 4px; border-radius: 2px;
+                     background: linear-gradient(90deg, #c98430, var(--accent)); }
+  #yearTrack input, #citTrack input { -webkit-appearance: none; appearance: none; position: absolute;
+                     top: 0; left: 0; width: 100%; margin: 0; height: 16px;
+                     background: none; pointer-events: none; outline: none; }
+  #yearTrack input::-webkit-slider-thumb, #citTrack input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto;
+                     width: 15px; height: 15px; border-radius: 50%; cursor: grab;
+                     background: var(--accent); border: 2px solid #1a1208;
+                     box-shadow: 0 0 6px rgba(255,179,71,.7); }
+  #yearTrack input::-moz-range-thumb, #citTrack input::-moz-range-thumb { pointer-events: auto; width: 13px; height: 13px;
+                     border-radius: 50%; cursor: grab; background: var(--accent);
+                     border: 2px solid #1a1208; }
+
+  /* ── grouped controls (horizontal row) with hover labels ── */
+  #controls { display: flex; flex-direction: row; gap: 8px; justify-content: center; }
+  .cgroup { display: flex; flex-direction: row;
+            background: linear-gradient(180deg, rgba(20,22,44,.85), rgba(10,11,26,.9));
+            border: 1px solid var(--border); border-radius: 11px; overflow: visible;
+            backdrop-filter: blur(10px); box-shadow: 0 3px 14px rgba(0,0,0,.35); }
+  .cbtn { position: relative; width: 40px; height: 40px; display: flex;
+          align-items: center; justify-content: center; color: #b9bcd8;
+          font-size: 17px; cursor: pointer; user-select: none;
+          transition: color .15s, background .15s; }
+  .cgroup .cbtn + .cbtn { border-left: 1px solid rgba(255,255,255,.05); }
+  .cbtn:first-child { border-radius: 11px 0 0 11px; }
+  .cbtn:last-child { border-radius: 0 11px 11px 0; }
+  .cbtn:only-child { border-radius: 11px; }
+  .cbtn:hover { background: rgba(255,179,71,.14); color: var(--accent); }
+  .cbtn:active { transform: scale(.92); }
+  .cbtn.active { color: var(--accent);
+                 background: rgba(255,179,71,.12);
+                 box-shadow: inset 0 -2px 0 var(--accent); }
+  .cbtn.small-txt { font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+  .cbtn::after { content: attr(data-tip); position: absolute; top: 47px; left: 50%;
+                 transform: translateX(-50%) translateY(-3px); white-space: nowrap;
+                 padding: 5px 10px; background: rgba(8,9,20,.96);
+                 border: 1px solid var(--border); border-radius: 6px;
+                 font-size: 11px; color: var(--text); letter-spacing: .03em;
+                 opacity: 0; pointer-events: none; z-index: 30;
+                 transition: opacity .15s, transform .15s; }
+  .cbtn:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── article card ───────────────────────────────────── */
+  #articleCard { position: absolute; top: 70px; right: 16px; width: 340px; z-index: 15;
+                 display: none; overflow: hidden; border-radius: 14px;
+                 border: 1px solid var(--border);
+                 background: linear-gradient(180deg, rgba(16,18,38,.95), rgba(9,10,22,.96));
+                 backdrop-filter: blur(14px);
+                 box-shadow: 0 12px 40px rgba(0,0,0,.55); }
+  #articleCard .hdr { display: flex; justify-content: space-between; align-items: center;
+                      padding: 12px 16px; }
+  #articleCard .hdr b { font-size: 10px; letter-spacing: .35em; color: #8b8da8; }
+  #articleCard .hdr .x { cursor: pointer; color: var(--muted); font-size: 18px;
+                         line-height: 1; width: 24px; height: 24px; display: flex;
+                         align-items: center; justify-content: center; border-radius: 6px;
+                         transition: background .15s, color .15s; }
+  #articleCard .hdr .x:hover { background: rgba(255,255,255,.08); color: #fff; }
+  #articleCard .body { padding: 4px 16px 16px; }
+  #articleCard .t { font-weight: 700; color: #fff; font-size: 15px; line-height: 1.4;
+                    letter-spacing: -.01em; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .badge { font-size: 10.5px; padding: 4px 11px; border-radius: 20px; font-weight: 500;
+           border: 1px solid rgba(122,162,255,.45); color: #b9cdff;
+           background: rgba(90,120,220,.16); }
+  .badge.type { border-color: rgba(255,255,255,.12); color: #9a9cb8;
+                background: rgba(255,255,255,.05); text-transform: capitalize; }
+  .stats { display: flex; gap: 8px; margin-top: 14px; }
+  .stat { flex: 1; text-align: center; border: 1px solid rgba(255,255,255,.08);
+          border-radius: 10px; padding: 10px 4px;
+          background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01)); }
+  .stat .v { color: #7aa2ff; font-size: 17px; font-weight: 700;
+             font-variant-numeric: tabular-nums; }
+  .stat .k { color: var(--muted); font-size: 8.5px; letter-spacing: .18em; margin-top: 4px; }
+  .arow { display: flex; gap: 9px; align-items: baseline; margin-top: 11px;
+          font-size: 12px; color: #c2c4da; line-height: 1.5; }
+  .arow .ic { font-size: 12px; flex: none; opacity: .7; }
+  .abtns { display: flex; gap: 9px; margin-top: 16px; }
+  .abtn { flex: 1; text-align: center; padding: 10px 0; border-radius: 9px; font-size: 11px;
+          letter-spacing: .14em; font-weight: 700; cursor: pointer; text-decoration: none;
+          transition: transform .12s, background .15s, box-shadow .15s; }
+  .abtn:active { transform: scale(.96); }
+  .abtn.primary { background: linear-gradient(180deg, #3b82f6, #2563eb); color: #fff;
+                  box-shadow: 0 4px 14px rgba(37,99,235,.4); }
+  .abtn.primary:hover { box-shadow: 0 6px 20px rgba(37,99,235,.55); }
+  .abtn.ghost { border: 1px solid var(--border); color: #b9bcd8; }
+  .abtn.ghost:hover { background: rgba(255,255,255,.06); color: #fff; }
+
+  /* ── legend modal ───────────────────────────────────── */
+  #legend { position: absolute; inset: 0; z-index: 30; display: none;
+            background: rgba(3,3,10,.7); }
+  #legend .inner { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+                   width: 420px; padding: 22px; }
+  #legend h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: .2em; text-transform: uppercase; }
+  #legend p { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 8px 0; }
+  #legend .grad { height: 10px; border-radius: 5px; margin: 6px 0 2px;
+    background: linear-gradient(90deg,#440154,#414487,#2a788e,#22a884,#7ad151,#fde725); }
+  #legend .gl { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+
+  /* domain halo legend (wave map) */
+  #domLegend { position: absolute; bottom: 16px; left: 16px; z-index: 10;
+               background: linear-gradient(180deg, rgba(14,15,32,.9), rgba(8,9,20,.92));
+               border: 1px solid var(--border); border-radius: 10px;
+               backdrop-filter: blur(10px); padding: 11px 13px 12px;
+               display: none; min-width: 188px;
+               box-shadow: 0 4px 20px rgba(0,0,0,.4); }
+  #domLegend.show { display: block; }
+  #domLegend .lt { display: flex; align-items: center; justify-content: space-between;
+                   font-size: 9px; letter-spacing: .25em; color: var(--muted);
+                   text-transform: uppercase; margin-bottom: 9px; cursor: pointer; }
+  #domLegend .lt .cl { transition: transform .2s; }
+  #domLegend.collapsed .lt .cl { transform: rotate(-90deg); }
+  #domLegend.collapsed .body { display: none; }
+  #domLegend .row { display: flex; align-items: center; gap: 9px; margin: 7px 0;
+                    font-size: 12px; color: var(--text); }
+  #domLegend .sw { width: 15px; height: 15px; border-radius: 50%; flex: none; }
+  #domLegend .nm { flex: 1; }
+  #domLegend .ct { font-size: 10px; color: var(--muted);
+                   font-variant-numeric: tabular-nums; }
+  #domLegend .hint { font-size: 9.5px; color: var(--muted); margin-top: 8px;
+                     padding-top: 8px; border-top: 1px solid rgba(255,255,255,.06);
+                     line-height: 1.4; }
+
+  #loader { position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+            z-index: 10; font-size: 10px; letter-spacing: .2em; color: var(--muted);
+            text-transform: uppercase; }
+
+  /* hover tooltip near cursor */
+  #hoverTip { position: absolute; z-index: 40; display: none; pointer-events: none;
+              max-width: 280px; padding: 7px 10px; font-size: 12px; line-height: 1.35;
+              color: var(--text); background: rgba(8,9,20,.96);
+              border: 1px solid var(--border); border-radius: 7px;
+              box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  #hoverTip .ht-t { color: #fff; font-weight: 600; }
+  #hoverTip .ht-m { color: var(--muted); font-size: 10.5px; margin-top: 3px; }
+
+  /* domain legend row: clickable filter */
+  #domLegend .row { cursor: pointer; padding: 2px 4px; border-radius: 6px;
+                    transition: background .12s; }
+  #domLegend .row:hover { background: rgba(255,255,255,.05); }
+  #domLegend .row.active { background: rgba(255,179,71,.14);
+                           box-shadow: inset 0 0 0 1px rgba(255,179,71,.4); }
+  #domLegend .row.dimmed { opacity: .4; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="brand"><b>RESEARCH SPACE</b><span>local · openalex</span></div>
+
+
+<div id="mechToggle">Facets</div>
+<div id="mechChips"></div>
+
+<div id="domLegend"></div>
+
+<div id="title">
+  <div class="t1" id="mainTitle">Metamaterials map</div>
+  <div class="t2" id="subtitle">~600k papers · 1987–2026</div>
+</div>
+
+<div id="panelToggle" title="hide/show panel">‹</div>
+<div id="leftCol">
+  <div id="searchPanel" class="panel">
+    <p class="ptitle">Search Papers</p>
+    <div id="searchWrap">
+      <input id="searchBox" placeholder="keyword, title, @author…" autocomplete="off">
+      <span id="searchClear">✕</span>
+    </div>
+    <div id="searchResults"></div>
+  </div>
+
+  <div id="yearPanel" class="panel">
+    <div id="yearHead"><label>PUBLICATION YEARS</label>
+      <span><span id="yearPlay" title="replay growth">▶</span>
+      <span id="yearVal">1900 – 2026</span></span></div>
+    <div id="yearTrack">
+      <div class="rail"></div>
+      <div class="fill" id="yearFill" style="left:0;width:100%"></div>
+      <input type="range" id="y0" min="1900" max="2026" value="1900">
+      <input type="range" id="y1" min="1900" max="2026" value="2026">
+    </div>
+    <div id="citHead" style="margin-top:12px"><label>MIN CITATIONS</label>
+      <span id="citVal">0</span></div>
+    <div id="citTrack">
+      <div class="rail"></div>
+      <input type="range" id="cmin" min="0" max="100" value="0"
+             style="pointer-events:auto">
+    </div>
+  </div>
+
+  <div id="controls">
+    <div class="cgroup">
+      <div class="cbtn" id="zin" data-tip="Zoom in">+</div>
+      <div class="cbtn" id="zout" data-tip="Zoom out">−</div>
+      <div class="cbtn" id="zreset" data-tip="Reset view">⌂</div>
+    </div>
+    <div class="cgroup">
+      <div class="cbtn" id="share" data-tip="Copy link to this view">⧉</div>
+      <div class="cbtn" id="qmark" data-tip="Legend &amp; help">?</div>
+    </div>
+  </div>
+</div>
+
+<div id="authorBar" class="panel" style="display:none;position:absolute;top:64px;
+     left:50%;transform:translateX(-50%);z-index:12;padding:8px 14px;
+     font-size:12px;display:none;align-items:center;gap:10px">
+  <span style="color:var(--accent)" id="authorName"></span>
+  <span id="authorCount" style="color:var(--muted)"></span>
+  <span id="authorClear" style="cursor:pointer;color:var(--muted)">✕</span>
+</div>
+
+<div id="articleCard" class="panel">
+  <div class="hdr"><b>ARTICLE</b><span class="x" id="cardClose">✕</span></div>
+  <div class="body">
+    <div class="t" id="cardTitle"></div>
+    <div class="badges" id="cardBadges"></div>
+    <div class="stats" id="cardStats"></div>
+    <div class="arow" id="cardDate"></div>
+    <div class="arow" id="cardVenue"></div>
+    <div class="arow" id="cardAuthors"></div>
+    <div id="cardAbstract" style="display:none;margin-top:11px;font-size:11.5px;
+         color:#a8aac4;line-height:1.55;max-height:150px;overflow-y:auto"></div>
+    <div class="abtns">
+      <a class="abtn primary" id="cardOpen" target="_blank" rel="noopener">OPEN</a>
+      <span class="abtn ghost" id="cardZoom">ZOOM</span>
+    </div>
+  </div>
+</div>
+<div id="hoverTip"></div>
+<div id="loader">loading points…</div>
+
+<div id="legend">
+  <div class="inner panel">
+    <h2>Map Legend</h2>
+    <p>Each point is a research paper from OpenAlex (domain: Physical Sciences,
+       ≥1 citation). Position = semantic similarity: SPECTER2 embeddings
+       reduced to 2D with UMAP. Nearby papers discuss similar topics.</p>
+    <div class="grad"></div>
+    <div class="gl"><span>sparse</span><span>paper density</span><span>dense</span></div>
+    <p>White frontiers separate dominant fields. Labels mark the densest
+       core of each field / subfield. Point size &amp; warmth = citations.</p>
+    <p>Hover a point for details, click to pin. Use the year sliders or the
+       ▶ button to replay the growth of science; the citations slider hides
+       low-impact papers.</p>
+    <p>Click an author name in the article card to highlight all their papers
+       and their chronological trajectory.</p>
+    <p style="text-align:right"><a href="#" id="legendClose" style="color:var(--accent)">close</a></p>
+  </div>
+</div>
+
+<script>
+const {DeckGL, OrthographicView, OrbitView, BitmapLayer, ScatterplotLayer,
+       TextLayer, LineLayer, PathLayer, TerrainLayer, IconLayer,
+       DataFilterExtension, CollisionFilterExtension} = deck;
+
+// soft radial glow sprite for 3D stars
+const GLOW = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.25, 'rgba(255,255,255,.85)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,.25)');
+  grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return c;
+})();
+
+let REC = 16; // x u16, y u16, cit u8, year u8, z u8, pad u8, id u64
+
+// viridis LUT (16 stops, lerped to 256) so points keep the nebula palette
+const VIRIDIS = (() => {
+  const stops = [
+    [68,1,84],[71,24,106],[71,45,123],[66,64,134],[59,82,139],[51,99,141],
+    [44,114,142],[38,130,142],[33,145,140],[31,160,136],[40,174,128],
+    [63,188,115],[94,201,98],[132,212,75],[173,220,48],[253,231,37]];
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255 * (stops.length - 1);
+    const a = Math.floor(t), b = Math.min(stops.length - 1, a + 1), f = t - a;
+    for (let c = 0; c < 3; c++)
+      lut[i * 3 + c] = stops[a][c] * (1 - f) + stops[b][c] * f;
+  }
+  return lut;
+})();
+
+// two-line wrap for long field names (GRS style)
+function wrapLabel(name) {
+  if (name.length < 16) return name;
+  const words = name.split(' ');
+  let best = -1, bestDiff = 1e9;
+  for (let i = 1; i < words.length; i++) {
+    const l = words.slice(0, i).join(' ').length;
+    const r = words.slice(i).join(' ').length;
+    if (Math.abs(l - r) < bestDiff) { bestDiff = Math.abs(l - r); best = i; }
+  }
+  return words.slice(0, best).join(' ') + '\n' + words.slice(best).join(' ');
+}
+
+// left panel collapse toggle
+(() => {
+  const tog = document.getElementById('panelToggle');
+  const col = document.getElementById('leftCol');
+  tog.onclick = () => {
+    const hidden = col.classList.toggle('hidden');
+    tog.textContent = hidden ? '›' : '‹';
+    tog.style.left = hidden ? '16px' : '322px';
+  };
+  tog.style.left = '322px';
+})();
+
+async function init() {
+  // cache-bust the small JSON the render/label scripts rewrite, so a browser
+  // doesn't keep a stale labels.json (e.g. missing minDz) after an update
+  const v = Date.now();
+  const meta = await (await fetch(`data/meta.json?v=${v}`)).json();
+  const labels = await (await fetch(`data/labels.json?v=${v}`)).json();
+
+  // meta-driven section config (the wave map reuses this same app)
+  if (meta.title) document.getElementById('mainTitle').textContent = meta.title;
+  if (meta.subtitle) document.getElementById('subtitle').textContent = meta.subtitle;
+  // domain halo legend
+  if (meta.domainColors && meta.domainNames) {
+    const leg = document.getElementById('domLegend');
+    const counts = meta.domainCounts || [];
+    const fmt = n => n >= 1000 ? (n / 1000).toFixed(0) + 'k' : '' + n;
+    leg.innerHTML =
+      '<div class="lt"><span>Domain Halos</span><span class="cl">▾</span></div>' +
+      '<div class="body">' +
+      meta.domainNames.map((n, i) => {
+        const [r, g, b] = meta.domainColors[i];
+        const c = counts[i] != null ? `<span class="ct">${fmt(counts[i])}</span>` : '';
+        return `<div class="row"><span class="sw" style="background:radial-gradient(circle,rgba(${r},${g},${b},.85),rgba(${r},${g},${b},.15));box-shadow:0 0 8px rgba(${r},${g},${b},.6)"></span><span class="nm">${n}</span>${c}</div>`;
+      }).join('') +
+      '<div class="hint">Overlapping halos = papers bridging domains · click a row to isolate</div></div>';
+    leg.classList.add('show');
+    leg.querySelector('.lt').onclick = () => leg.classList.toggle('collapsed');
+    // each row isolates its domain (dims the others); re-click clears it.
+    // domFilter / setDomFilter are defined later in init(); the closure
+    // captures them lazily so the handler is safe to bind here.
+    const rows = leg.querySelectorAll('.body .row');
+    rows.forEach((row, i) => {
+      row.onclick = () => setDomFilter(i, rows);
+    });
+  }
+
+  const sec = location.pathname.includes('/metamaterials/') ? 'metamaterials' : 'space';
+  document.querySelectorAll('#nav a').forEach(a =>
+    a.classList.toggle('active', a.dataset.sec === sec));
+  const paperApi = meta.paperApi || null;   // e.g. '/api/wpaper?row='
+  let contours = [];
+  fetch('data/contours.json').then(r => r.ok ? r.json() : [])
+    .then(c => { contours = c; refreshLayers(); }).catch(() => {});
+
+  // static deployment (GitHub Pages) has no /api: talk to OpenAlex directly.
+  // meta.static is set true in the published data so we never probe a missing
+  // backend (a 404 from GitHub Pages would otherwise leave staticMode false).
+  let staticMode = meta.static === true;
+  if (!staticMode) try {
+    const probe = await fetch('/api/paper?id=W0', {method: 'GET'});
+    if (!probe.ok && probe.status !== 404) staticMode = true;
+  } catch (e) { staticMode = true; }
+  const [x0, y0, x1, y1] = meta.bbox;
+  const W = x1 - x0, H = y1 - y0;
+  const CX = (x0 + x1) / 2, CY = (y0 + y1) / 2;
+  // fit leaves room for the title bar; left panels float over the map edge
+  const FIT = Math.log2(Math.min((innerWidth - 60) / W, (innerHeight - 130) / H));
+
+  const boundarySegs = (labels.boundaries || []).map(s => ({s: [s[0], s[1]], t: [s[2], s[3]]}));
+  const domBoundarySegs = (labels.domain_boundaries || []).map(s => ({s: [s[0], s[1]], t: [s[2], s[3]]}));
+  const subBoundarySegs = (labels.sub_boundaries || []).map(s => ({s: [s[0], s[1]], t: [s[2], s[3]]}));
+  // square frame: every frontier line ends on it (GRS style)
+  boundarySegs.push(
+    { s: [x0, y0], t: [x1, y0] }, { s: [x1, y0], t: [x1, y1] },
+    { s: [x1, y1], t: [x0, y1] }, { s: [x0, y1], t: [x0, y0] });
+
+  // ── progressive binary point stream ─────────────────────────────
+  REC = meta.record_bytes || 16;
+  const total = meta.count;
+  const positions = new Float32Array(total * 2);
+  const radii = new Float32Array(total);
+  const colors = new Uint8Array(total * 4);
+  const domColors = meta.domainColors ? new Uint8Array(total * 4) : null;
+  const years = new Float32Array(total);
+  const citB = new Uint8Array(total);        // citations byte (log-scaled)
+  const filtVal = new Float32Array(total * 2);  // [year, citByte] per point
+  const zq = new Uint8Array(total);          // elevation (local density)
+  const domB = new Uint8Array(total).fill(255); // domain index per point (255 = unassigned)
+  const ids = new BigUint64Array(total);
+  let nLoaded = 0, layerCount = 0;
+
+  async function streamPoints() {
+    const chunks = meta.chunks || ['points.bin'];
+    for (const name of chunks) {
+      // chunks can be plain names (served from data/) or absolute URLs
+      // (e.g. GitHub Release assets for the static deployment)
+      const resp = await fetch(/^https?:/.test(name) ? name : 'data/' + name);
+      const reader = resp.body.getReader();
+      let leftover = new Uint8Array(0);
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        let chunk;
+        if (leftover.length) {
+          chunk = new Uint8Array(leftover.length + value.length);
+          chunk.set(leftover); chunk.set(value, leftover.length);
+        } else chunk = value;
+        const usable = chunk.length - (chunk.length % REC);
+        leftover = chunk.slice(usable);
+        const dv = new DataView(chunk.buffer, chunk.byteOffset, usable);
+        const m = usable / REC;
+        for (let j = 0; j < m; j++) {
+          const o = j * REC, i = nLoaded + j;
+          positions[i * 2]     = x0 + dv.getUint16(o, true) / 65535 * W;
+          positions[i * 2 + 1] = y0 + dv.getUint16(o + 2, true) / 65535 * H;
+          const c = dv.getUint8(o + 4);
+          radii[i] = 0.6 + (c / 255) * 2.2;
+          const heat = c / 255;
+          const zb = REC >= 16 ? dv.getUint8(o + 6) : 128;
+          // base hue = local density through the nebula palette (viridis),
+          // blended towards white with citations: color survives any zoom
+          const li = Math.min(255, 40 + zb);
+          const wmix = 0.35 + heat * 0.5;
+          colors[i * 4]     = VIRIDIS[li * 3]     * (1 - wmix) + 255 * wmix;
+          colors[i * 4 + 1] = VIRIDIS[li * 3 + 1] * (1 - wmix) + 255 * wmix;
+          colors[i * 4 + 2] = VIRIDIS[li * 3 + 2] * (1 - wmix) + 255 * wmix;
+          colors[i * 4 + 3] = 150 + heat * 105;
+          // domain index lives in the pad slot (byte 7) of each 16-byte record
+          const db = REC >= 16 ? dv.getUint8(o + 7) : 255;
+          domB[i] = db;
+          if (domColors) {
+            // domain colour per point, used when the year filter hides
+            // the tinted nebula rasters
+            const dc = meta.domainColors[db] || [200, 205, 230];
+            domColors[i * 4]     = dc[0] * (1 - heat * 0.4) + 255 * heat * 0.4;
+            domColors[i * 4 + 1] = dc[1] * (1 - heat * 0.4) + 255 * heat * 0.4;
+            domColors[i * 4 + 2] = dc[2] * (1 - heat * 0.4) + 255 * heat * 0.4;
+            domColors[i * 4 + 3] = 170 + heat * 85;
+          }
+          years[i] = 1900 + dv.getUint8(o + 5);
+          citB[i] = c;
+          filtVal[i * 2] = years[i];
+          filtVal[i * 2 + 1] = c;
+          if (REC >= 16) {
+            zq[i] = dv.getUint8(o + 6);
+            ids[i] = dv.getBigUint64(o + 8, true);
+          } else {
+            ids[i] = dv.getBigUint64(o + 6, true);
+          }
+        }
+        nLoaded += m;
+        document.getElementById('loader').textContent =
+          `loading points… ${(nLoaded / 1e6).toFixed(1)}M / ${(total / 1e6).toFixed(1)}M`;
+        // show points immediately: first batch renders right away,
+        // then refresh fast early, then less often
+        const step = layerCount === 0 ? 1
+                   : layerCount < 1_000_000 ? 100_000 : 2_000_000;
+        if (nLoaded - layerCount >= step) refreshLayers();
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+    refreshLayers();
+    document.getElementById('loader').style.display = 'none';
+  }
+
+  // ── transverse-mechanism facet overlay (wave map) ────────────────
+  let mechBits = null;          // u32 per point, aligned with points order
+  let mechMask = 0;             // active facet bits
+  let mechPos = null, mechCol = null, mechN = 0;
+  const FACET_COLORS = [
+    [255,122,217],[122,220,255],[255,209,102],[138,255,128],[255,138,92],
+    [180,138,255],[92,255,201],[255,92,122],[160,232,255],[255,230,128],
+    [192,255,92],[255,154,217]];
+  const facetColor = bi => FACET_COLORS[bi % FACET_COLORS.length];
+  if (meta.mechanisms && meta.mechanisms.length) {
+    fetch('data/mech.bin').then(r => r.ok ? r.arrayBuffer() : null).then(b => {
+      if (b) mechBits = (b.byteLength / meta.count >= 4)
+        ? new Uint32Array(b) : new Uint8Array(b);
+    }).catch(() => {});
+    const box = document.getElementById('mechChips');
+    const tog = document.getElementById('mechToggle');
+    tog.style.display = 'block';
+    tog.onclick = () => box.classList.toggle('open');
+    let curGroup = null, row = null;
+    meta.mechanisms.forEach((m, bi) => {
+      const name = m.name || m, group = m.group || 'Facets';
+      if (group !== curGroup) {
+        curGroup = group;
+        const h = document.createElement('div');
+        h.className = 'chipGroup';
+        h.textContent = group;
+        box.appendChild(h);
+        row = document.createElement('div');
+        row.className = 'chipRow';
+        box.appendChild(row);
+      }
+      const el = document.createElement('div');
+      el.className = 'chip';
+      el.textContent = name;
+      const [cr, cg, cb] = facetColor(bi);
+      el.onclick = () => {
+        mechMask ^= (1 << bi);
+        const on = !!(mechMask & (1 << bi));
+        el.classList.toggle('on', on);
+        el.style.color = on ? `rgb(${cr},${cg},${cb})` : '';
+        el.style.borderColor = on ? `rgb(${cr},${cg},${cb})` : '';
+        el.style.boxShadow = on ? `0 0 8px rgba(${cr},${cg},${cb},.4)` : '';
+        tog.classList.toggle('active', mechMask !== 0);
+        rebuildMechOverlay();
+      };
+      row.appendChild(el);
+    });
+  }
+  function rebuildMechOverlay() {
+    if (!mechBits || !mechMask) { mechN = 0; refreshLayers(); return; }
+    const sel = [];
+    const m = Math.min(nLoaded, mechBits.length);
+    // honour the active year/citation filters so the overlay never
+    // shows points the base layer has hidden
+    for (let i = 0; i < m; i++)
+      if ((mechBits[i] & mechMask)
+          && years[i] >= yearRange[0] && years[i] <= yearRange[1]
+          && rcit(i) >= citRealMin) sel.push(i);
+    mechN = sel.length;
+    mechPos = new Float32Array(mechN * 2);
+    mechCol = new Uint8Array(mechN * 4);
+    for (let j = 0; j < mechN; j++) {
+      const i = sel[j];
+      mechPos[j * 2] = positions[i * 2];
+      mechPos[j * 2 + 1] = positions[i * 2 + 1];
+      // colour = first active facet this paper matches
+      const hits = mechBits[i] & mechMask;
+      const bi = 31 - Math.clz32(hits & -hits);
+      const [cr, cg, cb] = facetColor(bi);
+      mechCol[j * 4] = cr; mechCol[j * 4 + 1] = cg;
+      mechCol[j * 4 + 2] = cb; mechCol[j * 4 + 3] = 230;
+    }
+    refreshLayers();
+  }
+
+  // ── milky-way twinkle: brightest points shimmer ──────────────────
+  const TW = 25_000;
+  let twN = 0, twTick = 0;
+  const twPos = new Float32Array(TW * 2);
+  const twRad = new Float32Array(TW);
+  const twColors = new Uint8Array(TW * 4);
+  const twPhase = new Float32Array(TW);
+  const twSpeed = new Float32Array(TW);
+  function initTwinkle() {
+    twN = Math.min(TW, nLoaded);
+    for (let i = 0; i < twN; i++) {
+      twPos[i * 2] = positions[i * 2];
+      twPos[i * 2 + 1] = positions[i * 2 + 1];
+      twRad[i] = radii[i] * 1.15;
+      twColors[i * 4] = 255; twColors[i * 4 + 1] = 255; twColors[i * 4 + 2] = 255;
+      twColors[i * 4 + 3] = 0;
+      twPhase[i] = Math.random() * Math.PI * 2;
+      twSpeed[i] = 0.25 + Math.random() * 0.75;
+    }
+  }
+  let twT = 0;
+  function twinkleStep() {
+    if (is3D && tw3N) {
+      twT += 0.016;
+      for (let i = 0; i < tw3N; i++) {
+        const s = Math.sin(twT * tw3Speed[i] + tw3Phase[i]);
+        const a = s > 0.78 ? (s - 0.78) / 0.22 : 0;   // rare, sharp flashes
+        tw3Col[i] = (a * a * 255) | 0;
+      }
+      twTick++;
+      deckgl.setProps({ layers: makeLayers(currentZoom) });
+    } else if (twN) {
+      twT += 0.016;
+      const filt = filterActive();
+      for (let i = 0; i < twN; i++) {
+        // filters (years AND min-citations) hide twinkle stars exactly like
+        // their real points: no fake clickable-looking sparkles
+        if (filt && (years[i] < yearRange[0] || years[i] > yearRange[1]
+                     || rcit(i) < citRealMin)) {
+          twColors[i * 4 + 3] = 0;
+          continue;
+        }
+        const s = Math.sin(twT * twSpeed[i] + twPhase[i]);
+        const a = s > 0.55 ? (s - 0.55) / 0.45 : 0;   // sharp sparkle bursts
+        twColors[i * 4 + 3] = (a * a * 235) | 0;
+      }
+      twTick++;
+      deckgl.setProps({ layers: makeLayers(currentZoom) });
+    }
+    requestAnimationFrame(twinkleStep);
+  }
+
+  // ── citation beacons: the field's giants stay visible at any zoom ──
+  // points.bin is sorted citations-desc, so the most-cited papers are the
+  // leading indices. We draw them as a dedicated always-on layer with a
+  // pixel floor so they never shrink away or fade out on dezoom.
+  const BEACON_CIT = 165;          // log-cit byte threshold (only true giants)
+  const BEACON_MAX = 600;
+  let beaconN = 0;
+  const beaconPos = new Float32Array(BEACON_MAX * 2);
+  const beaconRad = new Float32Array(BEACON_MAX);
+  const beaconCol = new Uint8Array(BEACON_MAX * 4);
+  const beaconIdx = new Int32Array(BEACON_MAX);   // beacon j -> global point i
+  let beaconLabels = [];     // [{x,y,t,cit}] for the readable name layer
+  function shortTitle(s) {
+    if (!s) return '';
+    s = s.trim();
+    return s.length > 34 ? s.slice(0, 33).trimEnd() + '…' : s;
+  }
+  function buildBeacons() {
+    const filt = filterActive();
+    const labs = [];
+    let j = 0;
+    for (let i = 0; i < nLoaded && j < BEACON_MAX; i++) {
+      if (citB[i] < BEACON_CIT) break;            // sorted desc: none higher after
+      if (filt && (years[i] < yearRange[0] || years[i] > yearRange[1]
+                   || rcit(i) < citRealMin)) continue;
+      const t = Math.min(1, (citB[i] - BEACON_CIT) / (200 - BEACON_CIT));
+      beaconPos[j * 2] = positions[i * 2];
+      beaconPos[j * 2 + 1] = positions[i * 2 + 1];
+      beaconRad[j] = 2.5 + t * 4.5;               // 2.5..7 px, bigger = more cited
+      beaconCol[j * 4]     = 255;                 // warm white-gold core
+      beaconCol[j * 4 + 1] = 245 - (1 - t) * 30;
+      beaconCol[j * 4 + 2] = 205 - (1 - t) * 60;
+      beaconCol[j * 4 + 3] = 225;
+      beaconIdx[j] = i;
+      const ttl = pointTitles && pointTitles[i];
+      if (ttl) labs.push({ x: positions[i * 2], y: positions[i * 2 + 1],
+                           t: shortTitle(ttl), cit: citB[i] });
+      j++;
+    }
+    beaconN = j;
+    beaconLabels = labs;
+  }
+
+  // ── basic paper info (in-view list) ──────────────────────────────
+  const paperCache = new Map();
+  async function getPaper(idNum) {
+    const key = idNum.toString();
+    let p = paperCache.get(key);
+    if (!p) {
+      if (staticMode) {
+        const w = await (await fetch(
+          `https://api.openalex.org/works/W${key}?select=id,title,publication_year,cited_by_count,primary_topic`)).json();
+        p = {
+          id: 'W' + key,
+          title: w.title || '',
+          year: w.publication_year,
+          citations: w.cited_by_count,
+          field: w.primary_topic?.field?.display_name || '',
+          subfield: w.primary_topic?.subfield?.display_name || '',
+          topic: w.primary_topic?.display_name || '',
+        };
+      } else {
+        p = await (await fetch('/api/paper?id=W' + key)).json();
+      }
+      paperCache.set(key, p);
+    }
+    return p;
+  }
+
+  // ── GRS-style article card + pulse animation ─────────────────────
+  let pinned = null;   // {x, y}
+  let pulseT = 0, pulseRAF = null;
+  function startPulse() {
+    cancelAnimationFrame(pulseRAF);
+    const step = () => {
+      if (!pinned) return;
+      pulseT += 0.028;
+      deckgl.setProps({ layers: makeLayers(currentZoom) });
+      pulseRAF = requestAnimationFrame(step);
+    };
+    step();
+  }
+  const fullCache = new Map();
+  async function getPaperFull(idStr) {
+    let p = fullCache.get(idStr);
+    if (p) return p;
+    if (paperApi) {       // section-specific local API (wave map)
+      try {
+        const r = await fetch(paperApi + idStr.replace(/^W/, ''));
+        if (!r.ok) throw new Error('api ' + r.status);
+        const b = await r.json();
+        p = { id: idStr, title: b.title, year: b.year, date: String(b.year || ''),
+              citations: b.citations || 0, fwci: null, type: 'paper',
+              venue: b.venue || '', authors: b.authors || [],
+              nAuthors: (b.authors || []).length,
+              topic: b.subfield || '', subfield: b.field || '', url: b.url || '',
+              abstract: b.abstract || '' };
+        fullCache.set(idStr, p);
+        return p;
+      } catch (e) {
+        // stale points.bin ↔ db rowids (post-cleanup): minimal card
+        // instead of a silent no-op click
+        return { id: idStr, title: 'Paper #' + idStr.replace(/^W/, '') +
+                 ' (details unavailable, map being rebuilt)',
+                 year: null, date: '', citations: 0, fwci: null, type: '',
+                 venue: '', authors: [], nAuthors: 0, topic: '',
+                 subfield: '', url: '', abstract: '' };
+      }
+    }
+    // points carry themes.db rowids, not OpenAlex ids; resolve via the baked
+    // per-point DOI so the static card can fetch the real OpenAlex record
+    let oaId = idStr, pdix;
+    if (staticMode && pointDois) {
+      try { pdix = getIdIndex().get(BigInt(idStr.slice(1))); } catch (e) {}
+      const doi = pdix !== undefined ? (pointDois[pdix] || '').trim() : '';
+      if (doi) oaId = 'doi:' + doi;
+    }
+    try {   // OpenAlex direct: venue, authors, FWCI, date, type
+      if (staticMode && oaId === idStr) throw new Error('no doi');  // skip 404
+      const w = await (await fetch(
+        `https://api.openalex.org/works/${oaId}?select=id,title,display_name,publication_year,publication_date,cited_by_count,fwci,type,authorships,primary_location,primary_topic`)).json();
+      if (!w || !w.id) throw new Error('not found');
+      p = {
+        id: idStr,
+        title: w.title || w.display_name || '',
+        year: w.publication_year,
+        date: w.publication_date,
+        citations: w.cited_by_count || 0,
+        fwci: w.fwci,
+        type: w.type,
+        venue: w.primary_location?.source?.display_name || '',
+        authors: (w.authorships || []).slice(0, 4).map(a => a.author?.display_name).filter(Boolean),
+        nAuthors: (w.authorships || []).length,
+        topic: w.primary_topic?.display_name || '',
+        subfield: w.primary_topic?.subfield?.display_name || '',
+      };
+    } catch (e) {   // no DOI / offline / budget: baked title-only card
+      const ttl = (staticMode && pointTitles && pdix !== undefined)
+        ? pointTitles[pdix] : '';
+      if (staticMode) {
+        p = { id: idStr, title: ttl || 'Untitled paper', year: null, date: '',
+              citations: pdix !== undefined && pointCits ? pointCits[pdix] : 0,
+              fwci: null, type: '', venue: '', authors: [], nAuthors: 0,
+              topic: '', subfield: '' };
+      } else {
+        try {
+          const b = await getPaper(BigInt(idStr.slice(1)));
+          p = { id: idStr, title: b.title, year: b.year, date: String(b.year),
+                citations: b.citations || 0, fwci: null, type: 'article',
+                venue: '', authors: [], nAuthors: 0,
+                topic: b.topic || '', subfield: b.subfield || '' };
+        } catch (e2) { return null; }
+      }
+    }
+    fullCache.set(idStr, p);
+    return p;
+  }
+  async function openCard(idStr, px, py) {
+    const p = await getPaperFull(idStr);
+    if (!p) return;
+    pinned = { x: px, y: py };
+    document.getElementById('cardTitle').textContent = p.title;
+    const badges = [];
+    if (p.topic) badges.push(`<span class="badge">${p.topic}</span>`);
+    if (p.type) badges.push(`<span class="badge type">${p.type}</span>`);
+    document.getElementById('cardBadges').innerHTML = badges.join('');
+    document.getElementById('cardStats').innerHTML = `
+      <div class="stat"><div class="v">${p.fwci != null ? p.fwci.toFixed(2) : '-'}</div><div class="k">FWCI</div></div>
+      <div class="stat"><div class="v">${p.citations.toLocaleString()}</div><div class="k">CITED</div></div>
+      <div class="stat"><div class="v">${p.year ?? '-'}</div><div class="k">YEAR</div></div>`;
+    document.getElementById('cardDate').innerHTML = p.date
+      ? `<span class="ic">📅</span><span>${p.date}</span>` : '';
+    document.getElementById('cardVenue').innerHTML = p.venue
+      ? `<span class="ic">📕</span><span>${p.venue}</span>` : '';
+    const aDiv = document.getElementById('cardAuthors');
+    if (p.authors.length) {
+      aDiv.innerHTML = '<span class="ic">👥</span>';
+      const span = document.createElement('span');
+      p.authors.slice(0, 8).forEach((name, i) => {
+        if (i) span.appendChild(document.createTextNode(', '));
+        // author mode needs the local /api/wauthor; plain text in static
+        if (staticMode) {
+          span.appendChild(document.createTextNode(name));
+          return;
+        }
+        const a = document.createElement('a');
+        a.textContent = name;
+        a.href = '#';
+        a.style.cssText = 'color:#9fc3ff;text-decoration:none;cursor:pointer';
+        a.title = 'show all papers by this author';
+        a.onclick = (e) => { e.preventDefault(); authorMode(name); };
+        span.appendChild(a);
+      });
+      if (p.nAuthors > 8) span.appendChild(document.createTextNode(', …'));
+      aDiv.appendChild(span);
+    } else aDiv.innerHTML = '';
+    document.getElementById('cardAbstract').textContent =
+      p.abstract ? p.abstract : '';
+    document.getElementById('cardAbstract').style.display =
+      p.abstract ? 'block' : 'none';
+    // DOI (-> journal) / arXiv first; else search the title (the old
+    // openalex.org/<rowid> fallback was a dead link - rowid != OA id)
+    document.getElementById('cardOpen').href =
+      p.url || (p.title
+        ? 'https://scholar.google.com/scholar?q=' + encodeURIComponent(p.title)
+        : '#');
+    document.getElementById('articleCard').style.display = 'block';
+    startPulse();
+  }
+
+  // ── hover tooltip: lightweight title preview near the cursor ─────
+  const tipEl = document.getElementById('hoverTip');
+  const titleCache = new Map();      // rowid string -> title (or full paper)
+  // all titles pre-loaded, aligned with points.bin order -> instant hover
+  // (no per-hover API round-trip). Loaded lazily in the background.
+  let pointTitles = null;
+  fetch('data/titles.txt').then(r => r.ok ? r.text() : null).then(t => {
+    if (t) {
+      pointTitles = t.split('\n');
+      if (beaconN) { buildBeacons(); refreshLayers(); }  // names for giants
+    }
+  }).catch(() => {});
+  // static deploy: DOI per point (click -> OpenAlex by doi) and an author ->
+  // points index (author search without a backend). Both align to points.bin
+  // order; baked by scripts/big/bake_static.py.
+  let pointDois = null, authorIdx = null;
+  if (staticMode) {
+    fetch('data/dois.txt').then(r => r.ok ? r.text() : null)
+      .then(t => { if (t) pointDois = t.split('\n'); }).catch(() => {});
+    fetch('data/authors.json').then(r => r.ok ? r.json() : null)
+      .then(j => { if (j) authorIdx = j; }).catch(() => {});
+  }
+  // real citation count per point (uint32, points.bin order). Used for the
+  // tooltip AND the min-citations filter (the points.bin byte is too coarse
+  // at the low end to threshold on, so we filter on the real count instead).
+  let pointCits = null;
+  let citRealMin = 0;        // active min-citation threshold (real count)
+  let citMaxReal = 10000;    // slider upper bound (max real citations)
+  const rcit = i => pointCits ? pointCits[i] : 1e9;   // missing -> keep
+  function rebuildCitFilter() {
+    // push real citation counts into the GPU filter buffer's 2nd channel
+    if (!pointCits) return;
+    const n = Math.min(pointCits.length, nLoaded || pointCits.length);
+    for (let i = 0; i < n; i++) filtVal[i * 2 + 1] = pointCits[i];
+    papersData = null;       // force getFilterValue re-upload
+    refreshLayers();
+  }
+  function buildCitLut() {
+    if (!pointCits) return;
+    let mx = 0;
+    const n = Math.min(pointCits.length, nLoaded || pointCits.length);
+    for (let i = 0; i < n; i++) if (pointCits[i] > mx) mx = pointCits[i];
+    if (mx > 0) citMaxReal = mx;                   // slider upper bound
+  }
+  fetch('data/cits.bin').then(r => r.ok ? r.arrayBuffer() : null).then(b => {
+    if (b) { pointCits = new Uint32Array(b); buildCitLut(); rebuildCitFilter(); }
+  }).catch(() => {});
+  let hoverIndex = -1;               // current hovered point index
+  let hoverTimer = null;             // debounce timer for the title fetch
+  let hoverFetchSeq = 0;             // cancels stale fetches
+  let tipLastX = 0, tipLastY = 0;    // last cursor position for the tip
+  function positionTip(x, y) {
+    // keep the tip on-screen: flip to the left/up near the edges
+    const w = tipEl.offsetWidth || 200, h = tipEl.offsetHeight || 40;
+    let px = x + 14, py = y + 14;
+    if (px + w > innerWidth - 8) px = x - w - 14;
+    if (py + h > innerHeight - 8) py = y - h - 14;
+    tipEl.style.left = Math.max(8, px) + 'px';
+    tipEl.style.top = Math.max(8, py) + 'px';
+  }
+  function showTip(html, x, y) {
+    tipEl.innerHTML = html;
+    tipEl.style.display = 'block';
+    positionTip(x, y);
+  }
+  function hideTip() {
+    tipEl.style.display = 'none';
+    hoverIndex = -1;
+    clearTimeout(hoverTimer);
+    hoverFetchSeq++;                 // invalidate any in-flight fetch
+  }
+  // fetch just the title for a hovered point (debounced, cached). Reuses
+  // the full-paper cache when the card has already loaded this paper.
+  async function fetchHoverTitle(idStr, index, x, y) {
+    const rowKey = idStr.replace(/^W/, '');
+    if (titleCache.has(rowKey)) { return titleCache.get(rowKey); }
+    if (fullCache.has(idStr)) { return fullCache.get(idStr).title; }
+    if (!paperApi) return null;
+    const seq = ++hoverFetchSeq;
+    try {
+      const r = await fetch(paperApi + rowKey);
+      if (!r.ok) throw new Error('api ' + r.status);
+      const b = await r.json();
+      const title = b.title || ('Paper #' + rowKey);
+      titleCache.set(rowKey, title);
+      if (seq !== hoverFetchSeq) return null;   // stale: pointer moved on
+      return title;
+    } catch (e) { return null; }
+  }
+  function onPaperHover(info) {
+    if (!info || info.index < 0) { hideTip(); return; }
+    const idx = info.index;
+    const x = info.x, y = info.y;
+    const rowKey = ids[idx] != null ? ids[idx].toString() : '';
+    const yr = years[idx] ? `${years[idx] | 0}` : '';
+    const cn = pointCits ? pointCits[idx] : 0;
+    const citTxt = cn ? ` · ${cn.toLocaleString()} cit.` : '';
+    const metaLine = yr || citTxt ? `<div class="ht-m">${yr}${citTxt}</div>` : '';
+    if (idx !== hoverIndex) {
+      hoverIndex = idx;
+      clearTimeout(hoverTimer);
+      // instant: titles.txt preloaded and aligned with points.bin order.
+      // Fallbacks: cache, then a debounced API fetch if titles not ready.
+      const instant = (pointTitles && pointTitles[idx]) ||
+        titleCache.get(rowKey) ||
+        (fullCache.has('W' + rowKey) ? fullCache.get('W' + rowKey).title : null);
+      if (instant) {
+        showTip(`<div class="ht-t">${instant}</div>${metaLine}`, x, y);
+      } else {
+        showTip(`<div class="ht-t">Paper #${rowKey}</div>` +
+                `<div class="ht-m">loading…</div>`, x, y);
+        hoverTimer = setTimeout(async () => {
+          const title = await fetchHoverTitle('W' + rowKey, idx, x, y);
+          if (hoverIndex === idx && title) {
+            showTip(`<div class="ht-t">${title}</div>${metaLine}`,
+                    tipLastX, tipLastY);
+          }
+        }, 250);
+      }
+    } else {
+      positionTip(x, y);            // same point: just follow the cursor
+    }
+    tipLastX = x; tipLastY = y;
+  }
+
+  // ── author mode: highlight one author's papers + trajectory ──────
+  let authPos = null, authN = 0, authPath = null, authRows = null;
+  async function authorMode(name) {
+    try {
+      let rows;
+      if (staticMode) {
+        // baked authors.json: {surname: [[rowid, year], ...]}. Match on the
+        // query's last token (surname), exact then prefix.
+        if (!authorIdx) return;
+        const toks = name.toLowerCase().replace(/[^\w]+/g, ' ').trim().split(' ');
+        const sn = toks[toks.length - 1];
+        let hits = authorIdx[sn];
+        if (!hits) {
+          hits = [];
+          for (const k in authorIdx)
+            if (k.startsWith(sn)) { hits = hits.concat(authorIdx[k]); if (hits.length > 2000) break; }
+        }
+        rows = (hits || []).map(([row, year]) => ({ row, year }));
+      } else {
+        const r = await (await fetch('/api/wauthor?q=' +
+          encodeURIComponent(name))).json();
+        rows = r.rows || [];
+      }
+      const index = getIdIndex();
+      const pts = [];   // [x, y, year, rowid]
+      for (const w of rows) {
+        const i = index.get(BigInt(w.row));
+        if (i !== undefined)
+          pts.push([positions[i * 2], positions[i * 2 + 1], w.year || 0,
+                    w.row]);
+      }
+      authN = pts.length;
+      authPos = new Float32Array(authN * 2);
+      authRows = pts.map(p => p[3]);
+      pts.forEach((p, j) => { authPos[j * 2] = p[0]; authPos[j * 2 + 1] = p[1]; });
+      // chronological trajectory (rows are year-ordered by the API)
+      authPath = pts.filter(p => p[2] > 0).map(p => [p[0], p[1]]);
+      document.getElementById('authorName').textContent = name;
+      document.getElementById('authorCount').textContent =
+        `${authN} papers on map (${rows.length} matched)`;
+      const bar = document.getElementById('authorBar');
+      bar.style.display = 'flex';
+      refreshLayers();
+    } catch (e) {}
+  }
+  function clearAuthor() {
+    authN = 0; authPos = null; authPath = null; authRows = null;
+    document.getElementById('authorBar').style.display = 'none';
+    refreshLayers();
+  }
+  document.getElementById('authorClear').onclick = clearAuthor;
+  document.getElementById('cardClose').onclick = () => {
+    pinned = null;
+    document.getElementById('articleCard').style.display = 'none';
+    refreshLayers();
+  };
+  document.getElementById('cardZoom').onclick = () => {
+    if (pinned) flyTo(pinned.x, pinned.y, Math.max(currentZoom + 1.2, 6));
+  };
+
+  // ── year filter (bounds from meta, default 1900-2026) ───────────
+  const YMIN = meta.yearMin || 1900, YMAX = meta.yearMax || 2026;
+  const YSPAN = YMAX - YMIN;
+  let yearRange = [YMIN, YMAX];
+  ['y0', 'y1'].forEach((id, k) => {
+    const el = document.getElementById(id);
+    el.min = YMIN; el.max = YMAX; el.value = k ? YMAX : YMIN;
+  });
+  const yv = document.getElementById('yearVal');
+  yv.textContent = `${YMIN} – ${YMAX}`;
+  const yFill = document.getElementById('yearFill');
+  const baseSubtitle = meta.subtitle || 'all time map · complete dataset';
+  function setYears() {
+    const a = +document.getElementById('y0').value;
+    const b = +document.getElementById('y1').value;
+    yearRange = [Math.min(a, b), Math.max(a, b)];
+    yv.textContent = `${yearRange[0]} – ${yearRange[1]}`;
+    const p0 = (yearRange[0] - YMIN) / YSPAN * 100, p1 = (yearRange[1] - YMIN) / YSPAN * 100;
+    yFill.style.left = p0 + '%';
+    yFill.style.width = (p1 - p0) + '%';
+    document.getElementById('subtitle').textContent =
+      (yearRange[0] === YMIN && yearRange[1] === YMAX)
+        ? baseSubtitle
+        : `${yearRange[0]} – ${yearRange[1]} · filtered view`;
+    computeVisFrac();
+    buildBeacons();                       // giants track the filter too
+    if (mechMask) rebuildMechOverlay();   // overlay tracks the filter
+    else refreshLayers();
+  }
+  document.getElementById('y0').oninput = setYears;
+  document.getElementById('y1').oninput = setYears;
+
+  // min-citations slider works in REAL citations (not the coarse 0-255
+  // byte): the position maps exponentially onto [0, maxCit] so the low end
+  // has fine control. The filter runs on the real per-point count (filtVal).
+  function updateCitLabel() {
+    const el = document.getElementById('citVal');
+    if (!el) return;
+    el.textContent = citRealMin > 0 ? `≥ ${citRealMin.toLocaleString()} cit.`
+                                    : '0';
+  }
+  const cm = document.getElementById('cmin');
+  cm.oninput = () => {
+    const t = +cm.value / 100;
+    citRealMin = t <= 0 ? 0 : Math.round(Math.pow(citMaxReal + 1, t) - 1);
+    updateCitLabel();
+    computeVisFrac();
+    buildBeacons();                       // giants track the filter too
+    if (mechMask) rebuildMechOverlay();   // overlay tracks the filter
+    else refreshLayers();
+  };
+
+  // ── time animation: replay the growth of the field ──────────────
+  let playTimer = null;
+  const playBtn = document.getElementById('yearPlay');
+  playBtn.style.cursor = 'pointer';
+  playBtn.onclick = () => {
+    if (playTimer) {                       // stop
+      clearInterval(playTimer); playTimer = null;
+      playBtn.textContent = '▶';
+      return;
+    }
+    playBtn.textContent = '⏸';
+    // replay within the user-chosen slider bounds: y0 stays fixed,
+    // y1 sweeps from y0 to the selected end year
+    const yStart = yearRange[0], yEnd = yearRange[1];
+    let y = yStart;
+    document.getElementById('y0').value = yStart;
+    document.getElementById('y1').value = yStart;
+    setYears();
+    playTimer = setInterval(() => {
+      y += 1;
+      if (y > yEnd) {                      // done: restore + stop
+        clearInterval(playTimer); playTimer = null;
+        playBtn.textContent = '▶';
+        document.getElementById('y1').value = yEnd;
+        setYears();
+        return;
+      }
+      document.getElementById('y1').value = y;
+      setYears();
+    }, 350);
+  };
+
+
+  // ── layers ───────────────────────────────────────────────────────
+  let colorMode = 'neb';    // neb | year | cit
+  let domFilter = null;     // null = all domains; else domain index to isolate
+  let citMode = false;      // impact mode: size/brighten points by citations
+
+  // toggle domain isolation from a clicked legend row (hoisted: the legend
+  // builder binds this before this line runs)
+  function setDomFilter(i, rows) {
+    domFilter = (domFilter === i) ? null : i;
+    if (rows) rows.forEach((row, k) => {
+      row.classList.toggle('active', domFilter === k);
+      row.classList.toggle('dimmed', domFilter != null && domFilter !== k);
+    });
+    if (mechMask) rebuildMechOverlay();   // overlay tracks visible points
+    else refreshLayers();
+  }
+  const filterActive = () =>
+    yearRange[0] > YMIN || yearRange[1] < YMAX || citRealMin > 0;
+
+  // fraction of points surviving the filters: drives the progressive
+  // fade of the static halo/nebula rasters (~3ms on 550k points)
+  let visFrac = 1;
+  function computeVisFrac() {
+    if (!filterActive()) { visFrac = 1; return; }
+    let v = 0;
+    for (let i = 0; i < nLoaded; i++)
+      if (years[i] >= yearRange[0] && years[i] <= yearRange[1]
+          && rcit(i) >= citRealMin) v++;
+    visFrac = nLoaded ? v / nLoaded : 1;
+  }
+
+  // alternative color buffers, built lazily on first switch
+  let yearColB = null, citColB = null;
+  function buildYearColors() {
+    if (yearColB) return yearColB;
+    // cold blue (old) → violet → orange → bright yellow (recent)
+    const stops = [[40,60,160],[110,60,190],[210,90,120],[255,160,60],[255,235,90]];
+    yearColB = new Uint8Array(total * 4);
+    for (let i = 0; i < total; i++) {
+      const t = Math.max(0, Math.min(1, (years[i] - YMIN) / YSPAN));
+      const s = t * (stops.length - 1), a = Math.floor(s),
+            b = Math.min(stops.length - 1, a + 1), f = s - a;
+      yearColB[i*4]   = stops[a][0]*(1-f) + stops[b][0]*f;
+      yearColB[i*4+1] = stops[a][1]*(1-f) + stops[b][1]*f;
+      yearColB[i*4+2] = stops[a][2]*(1-f) + stops[b][2]*f;
+      yearColB[i*4+3] = 200;
+    }
+    return yearColB;
+  }
+  function buildCitColors() {
+    if (citColB) return citColB;
+    // dim slate (uncited) → amber → white-hot (highly cited)
+    citColB = new Uint8Array(total * 4);
+    for (let i = 0; i < total; i++) {
+      const t = citB[i] / 255;
+      citColB[i*4]   = 70 + t * 185;
+      citColB[i*4+1] = 75 + t * 150;
+      citColB[i*4+2] = 110 + t * 60;
+      citColB[i*4+3] = 130 + t * 125;
+    }
+    return citColB;
+  }
+  // impact mode: radius grows with citation byte (log-scaled already),
+  // brighter than the uniform base radius for highly-cited papers
+  let citRadiiB = null;
+  function buildCitRadii() {
+    if (citRadiiB) return citRadiiB;
+    citRadiiB = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      const t = citB[i] / 255;
+      citRadiiB[i] = 0.5 + t * t * 7;   // quadratic: top papers pop, rest tiny
+    }
+    return citRadiiB;
+  }
+  function baseColors() {
+    if (citMode) return buildCitColors();      // impact mode brightens by cit
+    if (colorMode === 'year') return buildYearColors();
+    if (colorMode === 'cit') return buildCitColors();
+    return (filterActive() && domColors) ? domColors : colors;
+  }
+  // domain isolate filter: dim points whose domain != domFilter by lowering
+  // alpha. Built per (base, domFilter) into a reusable buffer.
+  let domDimB = null;
+  function pickColors() {
+    const base = baseColors();
+    if (domFilter == null) return base;
+    if (!domDimB || domDimB.length !== total * 4) domDimB = new Uint8Array(total * 4);
+    const n = layerCount || nLoaded;
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      const match = domB[i] === domFilter;
+      domDimB[o]     = base[o];
+      domDimB[o + 1] = base[o + 1];
+      domDimB[o + 2] = base[o + 2];
+      domDimB[o + 3] = match ? base[o + 3] : Math.round(base[o + 3] * 0.10);
+    }
+    return domDimB;
+  }
+  function pickRadii() {
+    return citMode ? buildCitRadii() : radii;
+  }
+
+  // stable data object: recreated ONLY when more points arrive, so the
+  // twinkle animation never re-uploads the multi-GB point buffers
+  let papersData = null, papersDataKey = '';
+  function getPapersData() {
+    const key = `${filterActive() && !!domColors}|${colorMode}|${domFilter}|${citMode}`;
+    if (!papersData || papersData.length !== layerCount
+        || papersDataKey !== key) {
+      papersDataKey = key;
+      papersData = { length: layerCount, attributes: {
+        getPosition: { value: positions, size: 2 },
+        getRadius:   { value: pickRadii(), size: 1 },
+        getFillColor:{ value: pickColors(), size: 4 },
+        getFilterValue: { value: filtVal, size: 2 },
+      }};
+    }
+    return papersData;
+  }
+  // ── 3D terrain mode ─────────────────────────────────────────────
+  let is3D = false;
+  const ZMAX = Math.min(W, H) * 0.15;       // peak height in world units
+  const lighting3D = new deck.LightingEffect({
+    ambient: new deck.AmbientLight({ color: [200, 210, 255], intensity: 0.55 }),
+    sun: new deck.DirectionalLight({
+      color: [255, 240, 215], intensity: 1.5,
+      direction: [-0.6, 0.4, -1],            // low NW sun → long shadows
+    }),
+  });
+  // floating 3D stars: positions + altitude-gradient colors, built lazily
+  let pos3 = null, col3 = null, scl3 = null, n3 = 0;
+  let tw3N = 0, tw3Col = null, tw3Phase = null, tw3Speed = null, tw3Data = null;
+  function build3DPoints() {
+    n3 = Math.min(nLoaded, 60_000);         // most-cited first (sorted)
+    pos3 = new Float32Array(n3 * 3);
+    col3 = new Uint8Array(n3 * 4);
+    scl3 = new Float32Array(n3);            // pixel radius per star
+    for (let i = 0; i < n3; i++) {
+      const zf = zq[i] / 255;
+      pos3[i * 3]     = positions[i * 2];
+      pos3[i * 3 + 1] = positions[i * 2 + 1];
+      pos3[i * 3 + 2] = zf * ZMAX + ZMAX * 0.10 + Math.random() * ZMAX * 0.08;
+      // nebula palette by local density, lightly lifted by citations:
+      // the viridis theme stays clearly visible in 3D
+      const heat = (radii[i] - 0.6) / 2.2;
+      const li3 = Math.min(255, 40 + zq[i]);
+      const wm = 0.12 + heat * 0.25;
+      col3[i * 4]     = VIRIDIS[li3 * 3]     * (1 - wm) + 255 * wm;
+      col3[i * 4 + 1] = VIRIDIS[li3 * 3 + 1] * (1 - wm) + 255 * wm;
+      col3[i * 4 + 2] = VIRIDIS[li3 * 3 + 2] * (1 - wm) + 255 * wm;
+      col3[i * 4 + 3] = 120;                    // soft base, twinkle pops
+      scl3[i] = 2 + (radii[i] / 2.8) * 4;       // small glow halos
+    }
+    // 3D twinkle subset: brightest stars shimmer above the relief
+    tw3N = Math.min(n3, 8_000);
+    tw3Col = new Uint8Array(tw3N);          // alpha per star
+    tw3Phase = new Float32Array(tw3N);
+    tw3Speed = new Float32Array(tw3N);
+    tw3Data = Array.from({ length: tw3N }, (_, i) => i);
+    for (let i = 0; i < tw3N; i++) {
+      tw3Phase[i] = Math.random() * Math.PI * 2;
+      tw3Speed[i] = 0.25 + Math.random() * 0.75;
+    }
+  }
+  // terrain mounted from startup (hidden in 2D): the mesh is generated once
+  // in the background, so toggling 3D is instant
+  const terrainLayer = (visible) => new TerrainLayer({
+    id: 'terrain',
+    elevationData: 'data/height.png',
+    texture: 'data/density_far.png',        // punchier skin for the mountains
+    bounds: [x0, y0, x1, y1],
+    elevationDecoder: { rScaler: ZMAX / 255, gScaler: 0, bScaler: 0, offset: 0 },
+    meshMaxError: Math.min(W, H) / 700,     // fast mesh generation
+    // no specular: flat empty zones stay pitch black and melt into space
+    material: { ambient: 0.42, diffuse: 0.95, shininess: 1,
+                specularColor: [0, 0, 0] },
+    visible,
+  });
+
+  const make3DLayers = () => [
+    terrainLayer(true),
+    n3 > 0 && new IconLayer({
+      id: 'stars3d',                  // soft glowing stars above the relief
+      data: { length: n3, attributes: {
+        getPosition: { value: pos3, size: 3 },
+        getSize:     { value: scl3, size: 1 },
+        getColor:    { value: col3, size: 4 },
+      }},
+      iconAtlas: GLOW,
+      iconMapping: { star: { x: 0, y: 0, width: 64, height: 64, mask: true } },
+      getIcon: () => 'star',
+      sizeUnits: 'pixels',
+      billboard: true,
+      pickable: false,
+      opacity: 0.9,
+      parameters: { depthWriteEnabled: false },
+    }),
+    tw3N > 0 && new IconLayer({
+      id: 'twinkle3d',                // shimmering overlay on bright stars
+      data: tw3Data,
+      getPosition: i => [pos3[i * 3], pos3[i * 3 + 1], pos3[i * 3 + 2]],
+      getSize: i => scl3[i] * 4.5,
+      getColor: i => [255, 255, 255, tw3Col[i]],
+      iconAtlas: GLOW,
+      iconMapping: { star: { x: 0, y: 0, width: 64, height: 64, mask: true } },
+      getIcon: () => 'star',
+      sizeUnits: 'pixels',
+      billboard: true,
+      pickable: false,
+      updateTriggers: { getColor: twTick },
+      parameters: { depthWriteEnabled: false },
+    }),
+    new TextLayer({
+      // eslint: keep after stars so labels draw on top
+      id: 'fields3d',
+      data: labels.fields,
+      getPosition: d => [d.x, d.y, ZMAX * 1.12],
+      getText: d => wrapLabel(d.name),
+      getSize: 20,
+      getColor: [255, 255, 255, 245],
+      fontFamily: '"Segoe UI", sans-serif',
+      fontWeight: 700,
+      outlineWidth: 6,
+      outlineColor: [0, 0, 8, 255],
+      fontSettings: { sdf: true, buffer: 8 },
+      lineHeight: 1.15,
+      billboard: true,
+    }),
+  ].filter(Boolean);
+
+  // all zoom thresholds are relative to FIT (the "whole map" zoom), so the
+  // LOD bands work whatever the dataset's world size is
+  const makeLayers = (zoom) => { if (is3D) return make3DLayers(); const dz = zoom - FIT;
+    // author search = spotlight: dim the nebula + base so the author's
+    // highlighted points stand out
+    const authDim = authN > 0 ? 0.22 : 1; return [
+    terrainLayer(false),          // hidden: keeps the 3D mesh warm
+    new BitmapLayer({
+      id: 'density-far',          // contrasty smoothed nebula for dezoom
+      bounds: [x0, y0, x1, y1],
+      image: 'data/density_far.png',
+      opacity: authDim * (filterActive() ? 0 : 1) * Math.max(0, Math.min(1, (1.4 - dz) / 1.2)),
+    }),
+    new BitmapLayer({
+      id: 'density',
+      bounds: [x0, y0, x1, y1],
+      image: 'data/density.png',
+      opacity: authDim * (filterActive() ? 0 : 1) * Math.max(0, Math.min(1, (dz - 0.2) / 1.2)),
+    }),
+    new PathLayer({
+      id: 'isolines',                 // crisp vector topo contours
+      data: contours,
+      getPath: d => d.p,
+      getColor: d => [5, 8, 25, d.l < 6 ? 45 : 70],
+      getWidth: 1,
+      widthUnits: 'pixels',
+      widthMinPixels: 0.5,
+      opacity: Math.max(0, Math.min(0.85, (dz + 0.4) / 1.4)),
+      parameters: { depthTest: false },
+    }),
+    new ScatterplotLayer({
+      id: 'papers',
+      data: getPapersData(),
+      radiusUnits: 'pixels',
+      // dezoom → tiny dim stars over the nebula; zoom → full-size points
+      radiusScale: Math.max(0.15, Math.min(1, Math.pow(2, dz - 1.5))),
+      pickable: true,
+      // dezoom: nebula + twinkle only (no white wash); points fade in with zoom
+      opacity: authDim * (filterActive() ? 0.9
+        : Math.max(0, Math.min(1, (dz - 0.5) / 1.5))),
+      extensions: [new DataFilterExtension({filterSize: 2})],
+      filterRange: [yearRange, [citRealMin, 1e9]],
+      updateTriggers: { all: layerCount },
+      onHover: onPaperHover,
+      onClick: info => {
+        if (info.index >= 0)
+          openCard('W' + ids[info.index].toString(),
+                   positions[info.index * 2], positions[info.index * 2 + 1]);
+      },
+    }),
+    // citation beacons: most-cited papers, always visible (pixel floor,
+    // no opacity fade) so the giants read even at full dezoom
+    beaconN > 0 && new ScatterplotLayer({
+      id: 'beacons',
+      data: { length: beaconN, attributes: {
+        getPosition:  { value: beaconPos, size: 2 },
+        getRadius:    { value: beaconRad, size: 1 },
+        getFillColor: { value: beaconCol, size: 4 },
+      }},
+      radiusUnits: 'pixels',
+      radiusScale: Math.max(0.6, Math.min(1.5, Math.pow(2, dz - 1.0))),
+      radiusMinPixels: 2.5,        // never shrink away on dezoom
+      radiusMaxPixels: 10,
+      stroked: true,
+      lineWidthUnits: 'pixels',
+      getLineWidth: 0.4,
+      getLineColor: [255, 255, 255, 60],
+      opacity: 0.95,              // constant: no zoom fade
+      pickable: true,
+      updateTriggers: { all: beaconN },
+      onHover: info => onPaperHover(info && info.index >= 0
+        ? Object.assign({}, info, { index: beaconIdx[info.index] }) : info),
+      onClick: info => {
+        if (info.index >= 0) {
+          const gi = beaconIdx[info.index];
+          openCard('W' + ids[gi].toString(),
+                   positions[gi * 2], positions[gi * 2 + 1]);
+        }
+      },
+    }),
+    twN > 0 && new ScatterplotLayer({
+      id: 'twinkle',
+      data: { length: twN, attributes: {
+        getPosition: { value: twPos, size: 2 },
+        getRadius:   { value: twRad, size: 1 },
+        getFillColor:{ value: twColors, size: 4 },
+      }},
+      radiusUnits: 'pixels',
+      radiusScale: Math.max(0.35, Math.min(1.3, Math.pow(2, dz - 1.5))),
+      pickable: false,
+      updateTriggers: { getFillColor: twTick },
+      parameters: { depthTest: false },
+    }),
+    mechN > 0 && new ScatterplotLayer({
+      id: 'mech-overlay',             // faceted highlight, colour per facet
+      data: { length: mechN, attributes: {
+        getPosition: { value: mechPos, size: 2 },
+        getFillColor: { value: mechCol, size: 4 },
+      }},
+      getRadius: 2.2,
+      radiusUnits: 'pixels',
+      pickable: false,
+      parameters: { depthTest: false },
+    }),
+    (meta.domainColors) && new BitmapLayer({
+      id: 'domain-halos',               // translucent KDE halos per domain
+      bounds: [x0, y0, x1, y1],
+      image: 'data/domains.png',
+      // filters fade the halos proportionally to the surviving points
+      // instead of cutting them off
+      opacity: authDim * Math.max(0.25, Math.min(1, (2.2 - dz) / 1.4)) * visFrac,
+    }),
+    domBoundarySegs.length > 0 && new LineLayer({
+      id: 'domain-frontiers',
+      data: domBoundarySegs,
+      getSourcePosition: d => d.s,
+      getTargetPosition: d => d.t,
+      getColor: [110, 180, 255, 255],
+      getWidth: 3.2,
+      widthUnits: 'pixels',
+    }),
+    new LineLayer({
+      id: 'frontiers',
+      data: boundarySegs,
+      getSourcePosition: d => d.s,
+      getTargetPosition: d => d.t,
+      getColor: [255, 255, 255, domBoundarySegs.length ? 160 : 255],
+      getWidth: domBoundarySegs.length ? 1.4 : 2.2,
+      widthUnits: 'pixels',
+    }),
+    new LineLayer({
+      id: 'sub-frontiers',              // subfield sub-grid, takes over on zoom
+      data: subBoundarySegs,
+      getSourcePosition: d => d.s,
+      getTargetPosition: d => d.t,
+      getColor: [255, 255, 255, 255],   // nested sub-grid, plain white
+      getWidth: 1.6,
+      widthUnits: 'pixels',
+      visible: dz >= 0.8,
+      opacity: Math.max(0, Math.min(1, (dz - 0.8) / 0.4)),
+    }),
+    authPath && authPath.length > 1 && new PathLayer({
+      id: 'author-path',                // chronological trajectory
+      data: [authPath],
+      getPath: d => d,
+      getColor: [255, 179, 71, 120],
+      getWidth: 1.6,
+      widthUnits: 'pixels',
+      parameters: { depthTest: false },
+    }),
+    // soft glow under the author's points so they read at any zoom
+    authN > 0 && new ScatterplotLayer({
+      id: 'author-glow',
+      data: { length: authN, attributes: {
+        getPosition: { value: authPos, size: 2 },
+      }},
+      getRadius: 9, radiusUnits: 'pixels', radiusMinPixels: 7,
+      radiusMaxPixels: 28,
+      getFillColor: [255, 190, 80, 70],
+      pickable: false,
+      parameters: { depthTest: false },
+    }),
+    authN > 0 && new ScatterplotLayer({
+      id: 'author-papers',              // highlighted author's work
+      data: { length: authN, attributes: {
+        getPosition: { value: authPos, size: 2 },
+      }},
+      getRadius: 5,
+      radiusUnits: 'pixels',
+      radiusMinPixels: 4,               // always visible, even full dezoom
+      radiusMaxPixels: 16,
+      stroked: true,
+      filled: true,
+      getFillColor: [255, 205, 95, 255],
+      getLineColor: [255, 255, 255, 255],
+      getLineWidth: 1.4,
+      lineWidthUnits: 'pixels',
+      // clickable on its own: the base layer may have the point
+      // filtered out (year/citation sliders), the highlight stays
+      pickable: true,
+      onClick: info => {
+        if (info.index >= 0 && authRows)
+          openCard('W' + authRows[info.index],
+                   authPos[info.index * 2], authPos[info.index * 2 + 1]);
+      },
+      parameters: { depthTest: false },
+    }),
+    pinned && new ScatterplotLayer({
+      id: 'pin',
+      data: [0, 1],   // two rings, phase-shifted pulse
+      getPosition: () => [pinned.x, pinned.y],
+      getRadius: d => 8 + 5 * (0.5 + 0.5 * Math.sin(pulseT + d * Math.PI)),
+      radiusUnits: 'pixels',
+      stroked: true,
+      filled: false,
+      getLineColor: d => [255, 179, 71,
+        Math.round(230 * (0.5 + 0.5 * Math.cos(pulseT + d * Math.PI)))],
+      getLineWidth: 2,
+      lineWidthUnits: 'pixels',
+      updateTriggers: { getRadius: pulseT, getLineColor: pulseT },
+    }),
+    new TextLayer({
+      id: 'fields',
+      // LOD by cluster size: the biggest cells are named at full zoom-out,
+      // mid topics appear on a slight zoom, small ones on a deeper zoom -
+      // so each visible cell has a title without piling up dezoomed.
+      // per-label LOD precomputed offline (field_lod.py): each title appears
+      // at the zoom where its text box stops overlapping a bigger neighbour,
+      // so the overview is readable and crowded EM cells surface on zoom-in
+      data: labels.fields.filter(d => dz >= (d.minDz ?? 0)),
+      getPosition: d => [d.x, d.y],
+      getText: d => wrapLabel(d.name),
+      getSize: d => Math.min(34, 22 + Math.log10(d.count) * 2),
+      getColor: [255, 255, 255, 255],
+      fontFamily: '"Segoe UI", sans-serif',
+      fontWeight: 700,
+      outlineWidth: 6,
+      outlineColor: [0, 0, 8, 255],
+      fontSettings: { sdf: true, buffer: 8 },
+      lineHeight: 1.15,
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'center',
+      // white topic labels are NEVER collision-culled (a named cell must
+      // always render); overlaps are prevented offline by spreading the label
+      // positions in labels.json (declutter_fields.py), not by hiding them
+      visible: dz < 3.4,
+      billboard: true,
+      parameters: { depthTest: false },
+    }),
+    new TextLayer({
+      id: 'subfields',
+      data: labels.subfields,
+      getPosition: d => [d.x, d.y],
+      getText: d => wrapLabel(d.name),
+      getSize: d => Math.min(21, 15 + Math.log10(d.count)),
+      getColor: [255, 198, 110, 255],   // amber: our own signature
+      fontFamily: '"Segoe UI", sans-serif',
+      fontWeight: 700,
+      outlineWidth: 5,
+      outlineColor: [4, 6, 16, 255],
+      fontSettings: { sdf: true, buffer: 8 },
+      lineHeight: 1.15,
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'center',
+      visible: dz >= 0.9 && dz < 3.4,          // subfields nested inside
+      billboard: true,
+      // GRS-style: overlapping labels are hidden, bigger subfields win.
+      // tighter test box (1.5 vs 2.2) lets small but distinct subfields
+      // like "Left Handed Metamaterial" survive next to a big neighbour
+      extensions: [new CollisionFilterExtension()],
+      collisionGroup: 'labels',
+      collisionTestProps: { sizeScale: 1.5 },
+      getCollisionPriority: d => Math.log10(d.count),
+    }),
+    new TextLayer({
+      id: 'topics',
+      data: labels.topics || [],
+      getPosition: d => [d.x, d.y],
+      getText: d => wrapLabel(d.name),
+      getSize: 17,
+      getColor: [255, 255, 255, 255],   // white + heavy outline: readable
+      fontFamily: '"Segoe UI", sans-serif',
+      fontWeight: 700,
+      outlineWidth: 6,
+      outlineColor: [0, 0, 10, 255],
+      fontSettings: { sdf: true, buffer: 8 },
+      lineHeight: 1.15,
+      getTextAnchor: 'middle',
+      getAlignmentBaseline: 'center',
+      visible: dz >= 3.2,                      // then topics at deep zoom
+      billboard: true,
+      extensions: [new CollisionFilterExtension()],
+      collisionGroup: 'labels',
+      collisionTestProps: { sizeScale: 2.2 },
+      getCollisionPriority: d => Math.log10(d.count) - 3,
+    }),
+  ].filter(Boolean); };
+
+  // ── view state / URL hash sync ──────────────────────────────────
+  function parseHash() {
+    const m = location.hash.match(/^#([\d.-]+)\/([\d.-]+)\/([\d.-]+)/);
+    if (!m) return null;
+    return { zoom: +m[1], target: [+m[2], +m[3], 0] };
+  }
+  const h = parseHash();
+  let viewState = {
+    target: h ? h.target : [CX, CY, 0],
+    zoom: h ? h.zoom : FIT,
+    minZoom: FIT - 0.1, maxZoom: 12,   // can't dezoom past the full map
+  };
+  let currentZoom = viewState.zoom;
+  let hashTimer = null;
+
+  function refreshLayers() {
+    layerCount = nLoaded;
+    deckgl.setProps({ layers: makeLayers(currentZoom) });
+  }
+
+  const deckgl = new DeckGL({
+    container: 'map',
+    pickingRadius: 8,            // tolerate near-misses when clicking points
+    views: new OrthographicView({ flipY: false }),
+    initialViewState: viewState,
+    controller: { inertia: 300 },
+    layers: [],
+    onViewStateChange: ({ viewState: vs }) => {
+      // keep the visible window inside the map: clamp the camera target so
+      // you can never pan the nebula out of view
+      const sc = Math.pow(2, vs.zoom);
+      const hw = innerWidth / 2 / sc, hh = innerHeight / 2 / sc;
+      const cx = (W <= hw * 2) ? CX
+        : Math.max(x0 + hw, Math.min(x1 - hw, vs.target[0]));
+      const cy = (H <= hh * 2) ? CY
+        : Math.max(y0 + hh, Math.min(y1 - hh, vs.target[1]));
+      vs.target = [cx, cy, 0];
+      viewState = vs;
+      if (Math.abs(vs.zoom - currentZoom) > 0.1) {
+        currentZoom = vs.zoom;
+        deckgl.setProps({ layers: makeLayers(vs.zoom) });
+      }
+      clearTimeout(hashTimer);
+      hashTimer = setTimeout(() => {
+        history.replaceState(null, '',
+          `#${vs.zoom.toFixed(2)}/${vs.target[0].toFixed(2)}/${vs.target[1].toFixed(2)}`);
+      }, 300);
+      return vs;
+    },
+    getCursor: ({ isDragging, isHovering }) =>
+      isDragging ? 'grabbing' : (isHovering ? 'pointer' : 'grab'),
+  });
+  refreshLayers();
+  streamPoints().then(() => {
+    if (!twN) { initTwinkle(); }
+    buildBeacons();                 // giants visible at every zoom
+    buildCitLut();                  // full byte->real-citation lookup
+    rebuildCitFilter();             // real citations into the GPU filter
+    // overlays toggled mid-stream covered only the loaded subset: rebuild
+    // over the full point set now that everything is in
+    if (mechMask) rebuildMechOverlay();
+    refreshLayers();
+  });
+  // start twinkling as soon as the first points are in
+  const twWait = setInterval(() => {
+    if (nLoaded > 100_000 || (nLoaded >= total && nLoaded > 0)) {
+      initTwinkle(); buildBeacons(); clearInterval(twWait);
+    }
+  }, 500);
+  twinkleStep();
+
+  function flyTo(x, y, zoom) {
+    viewState = { ...viewState, target: [x, y, 0], zoom,
+                  transitionDuration: 900 };
+    deckgl.setProps({ initialViewState: viewState });
+    currentZoom = zoom;
+    setTimeout(refreshLayers, 950);
+  }
+
+  // ── controls ─────────────────────────────────────────────────────
+  const setZoom = dz => flyTo(viewState.target[0], viewState.target[1],
+                              Math.max(FIT - 0.1, Math.min(12, viewState.zoom + dz)));
+
+  const _mode3dBtn = document.getElementById('mode3d');
+  if (_mode3dBtn) _mode3dBtn.onclick = function () {
+    is3D = !is3D;
+    hideTip();
+    this.classList.toggle('active', is3D);
+    this.textContent = is3D ? '2D' : '3D';
+    this.setAttribute('data-tip', is3D ? 'Back to 2D map' : '3D relief: drag to rotate');
+    if (is3D) {
+      if (!pos3 || n3 < Math.min(nLoaded, 300_000)) build3DPoints();
+      deckgl.setProps({
+        effects: [lighting3D],
+        views: new OrbitView({ orbitAxis: 'Z' }),
+        initialViewState: {
+          target: [viewState.target[0], viewState.target[1], 0],
+          zoom: Math.max(viewState.zoom, FIT),
+          rotationX: 50, rotationOrbit: -25,
+          // camera stays above the horizon: the flat dark backside of the
+          // terrain rectangle is never visible
+          minRotationX: 22, maxRotationX: 88,
+          minZoom: FIT - 0.5, maxZoom: 12,
+        },
+        layers: make3DLayers(),
+      });
+    } else {
+      deckgl.setProps({
+        effects: [],
+        views: new OrthographicView({ flipY: false }),
+        initialViewState: {
+          target: [viewState.target[0], viewState.target[1], 0],
+          zoom: Math.max(viewState.zoom, FIT - 0.1),
+          minZoom: FIT - 0.1, maxZoom: 12,
+        },
+        layers: makeLayers(currentZoom),
+      });
+    }
+  };
+  document.getElementById('zin').onclick = () => setZoom(0.8);
+  document.getElementById('zout').onclick = () => setZoom(-0.8);
+  document.getElementById('zreset').onclick = () => flyTo(CX, CY, FIT);
+
+  document.getElementById('share').onclick = function () {
+    navigator.clipboard.writeText(location.href);
+    this.textContent = '✓';
+    setTimeout(() => this.textContent = '⧉', 1200);
+  };
+
+  document.getElementById('qmark').onclick = () =>
+    document.getElementById('legend').style.display = 'block';
+  document.getElementById('legendClose').onclick = (e) => {
+    e.preventDefault();
+    document.getElementById('legend').style.display = 'none';
+  };
+
+  // ── search ───────────────────────────────────────────────────────
+  // static mode: lookup.bin maps the top-cited paper ids → map position
+  let lkIds = null, lkX = null, lkY = null;
+  async function loadLookup() {
+    if (lkIds || !staticMode) return;
+    try {
+      const buf = await (await fetch('data/lookup.bin')).arrayBuffer();
+      const nlk = buf.byteLength / 12;
+      lkIds = new BigUint64Array(nlk); lkX = new Uint16Array(nlk); lkY = new Uint16Array(nlk);
+      const dv = new DataView(buf);
+      for (let i = 0; i < nlk; i++) {
+        lkIds[i] = dv.getBigUint64(i * 12, true);
+        lkX[i] = dv.getUint16(i * 12 + 8, true);
+        lkY[i] = dv.getUint16(i * 12 + 10, true);
+      }
+    } catch (e) {}
+  }
+  function lookupId(idNum) {
+    if (!lkIds) return null;
+    let lo = 0, hi = lkIds.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lkIds[mid] === idNum)
+        return [x0 + lkX[mid] / 65535 * W, y0 + lkY[mid] / 65535 * H];
+      if (lkIds[mid] < idNum) lo = mid + 1; else hi = mid - 1;
+    }
+    return null;
+  }
+  let idIndex = null;   // BigInt id -> point index (built on demand)
+  function getIdIndex() {
+    if (!idIndex || idIndex.size < nLoaded) {
+      idIndex = new Map();
+      for (let i = 0; i < nLoaded; i++) idIndex.set(ids[i], i);
+    }
+    return idIndex;
+  }
+  async function doSearch(q) {
+    if (meta.searchApi) {   // section-local search (metamaterials map)
+      const r = await (await fetch(meta.searchApi + encodeURIComponent(q))).json();
+      const index = getIdIndex();
+      return { results: (r.results || []).map(w => {
+        let i;
+        try { i = index.get(BigInt(w.id)); } catch { i = undefined; }
+        return { ...w, id: w.id,
+                 x: i !== undefined ? positions[i * 2] : null,
+                 y: i !== undefined ? positions[i * 2 + 1] : null };
+      })};
+    }
+    if (!staticMode) {
+      return (await (await fetch('/api/search?q=' + encodeURIComponent(q))).json());
+    }
+    await loadLookup();
+    const r = await (await fetch(
+      'https://api.openalex.org/works?search=' + encodeURIComponent(q) +
+      '&filter=topics.domain.id:3,cited_by_count:%3E0&per_page=10' +
+      '&select=id,title,publication_year,cited_by_count,primary_topic')).json();
+    return { results: (r.results || []).map(w => {
+      let idNum, pos = null;
+      try {
+        idNum = BigInt((w.id || 'W0').split('/').pop().slice(1) || '0');
+        pos = lookupId(idNum);
+      } catch { idNum = 0n; }
+      return {
+        id: 'W' + idNum,
+        title: w.title || '',
+        year: w.publication_year,
+        citations: w.cited_by_count,
+        subfield: w.primary_topic?.subfield?.display_name || '',
+        x: pos ? pos[0] : null,
+        y: pos ? pos[1] : null,
+      };
+    })};
+  }
+
+  const sb = document.getElementById('searchBox');
+  const srDiv = document.getElementById('searchResults');
+  const sClear = document.getElementById('searchClear');
+  sClear.onclick = () => { sb.value = ''; srDiv.innerHTML = '';
+                           sClear.classList.remove('show');
+                           if (authN) clearAuthor(); sb.focus(); };
+  let searchTimer = null;
+  sb.oninput = () => {
+    clearTimeout(searchTimer);
+    const q = sb.value.trim();
+    sClear.classList.toggle('show', sb.value.length > 0);
+    if (q.length < 3) { srDiv.innerHTML = ''; return; }
+    // author mode: "@name" or "author:name" highlights every paper
+    // by that author (local /api/wauthor only; off in static mode)
+    const am = (!staticMode || authorIdx) && q.match(/^(?:@|author:\s*)(.+)$/i);
+    if (am && am[1].trim().length >= 3) {
+      searchTimer = setTimeout(() => {
+        srDiv.innerHTML = '';
+        authorMode(am[1].trim());
+      }, 500);
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      // leaving author syntax for a keyword query exits author mode
+      if (authN) clearAuthor();
+      srDiv.innerHTML = '<div class="sr off">searching…</div>';
+      try {
+        const r = await doSearch(q);
+        srDiv.innerHTML = '';
+        if (!r.results.length) srDiv.innerHTML = '<div class="sr off">no results</div>';
+        for (const w of r.results) {
+          const el = document.createElement('div');
+          el.className = 'sr' + (w.x === null ? ' off' : '');
+          el.innerHTML = `<div>${w.title}</div>
+            <div class="m">${w.year ?? ''} · ${(w.citations||0).toLocaleString()} cit.
+            ${w.x === null ? '· not on map' : '· ' + (w.subfield || '')}</div>`;
+          if (w.x !== null) el.onclick = () => {
+            openCard(w.id, w.x, w.y);
+            flyTo(w.x, w.y, 6);
+          };
+          srDiv.appendChild(el);
+        }
+        // author-mode shortcut row (works on any query)
+        if (!staticMode || authorIdx) {
+          const ar = document.createElement('div');
+          ar.className = 'sr';
+          ar.innerHTML = `<div>👤 all papers by “${q}”</div>
+            <div class="m">author mode · highlights + trajectory</div>`;
+          ar.onclick = () => { srDiv.innerHTML = ''; authorMode(q); };
+          srDiv.appendChild(ar);
+        }
+      } catch (e) { srDiv.innerHTML = '<div class="sr off">search failed</div>'; }
+    }, 400);
+  };
+
+}
+
+init();
+</script>
+</body>
+</html>
