@@ -16,7 +16,7 @@ search, explore.
 ## The map
 
 Three continents split the field by physical domain: Electromagnetic and
-Optical (blue), Acoustic and Phononic (green), Elastic and Mechanical (amber).
+Optical (blue), Acoustic and Phononic (green), Elastic and Mechanical (yellow).
 White cells are fields such as Photonic Crystals, Phononic Crystals,
 Metasurfaces, Negative Index or Auxetics. Amber labels are subfields that
 appear as you zoom in. Hover a point to read its title, zoom for finer
